@@ -1,0 +1,15 @@
+{
+  "chrome_path": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  "chrome_debug_port": 9222,
+  "chrome_user_data_dir": "D:\\TRAE SOLO CN\\视频号流程\\.trae\\skills\\社媒发布\\chrome-debug-profile",
+  "platform": "channels",
+  "platform_url": "https://channels.weixin.qq.com/platform",
+  "publish_url": "https://channels.weixin.qq.com/platform/post/create",
+  "video_folder": "D:\\TRAE SOLO CN\\视频号流程\\待发布视频",
+  "record_folder": "D:\\TRAE SOLO CN\\视频号流程\\已发布记录",
+  "frames_folder": "D:\\TRAE SOLO CN\\视频号流程\\待发布视频\\.frames",
+  "default_location": "苏州市",
+  "max_title_length": 16,
+  "max_description_length": 1000,
+  "screenshot_dir": "D:\\TRAE SOLO CN\\视频号流程\\待发布视频\\.screenshots"
+}
