@@ -72,9 +72,16 @@ class ChromeCDP:
         time.sleep(1)
 
     def navigate(self, url, wait=8):
-        """导航到指定URL"""
+        """导航到指定URL，自动处理beforeunload弹窗"""
+        # 先禁用beforeunload弹窗，防止"离开网站"确认框
+        self.eval_js("window.onbeforeunload = null; window.onunload = null;")
+        # 启用页面弹窗自动处理
+        self.send_cmd("Page.enable")
+        self.send_cmd("Page.setInterceptFileChooserDialog", {"enabled": False})
         result = self.send_cmd("Page.navigate", {"url": url})
         time.sleep(wait)
+        # 检查是否有JavaScript弹窗，自动确认
+        self.send_cmd("Page.handleJavaScriptDialog", {"accept": True})
         return result
 
     def eval_js(self, expression, return_by_value=True, timeout=15):
@@ -211,46 +218,98 @@ class ChromeCDP:
         return result is not None
 
     def fill_description(self, text):
-        """填写视频描述（contenteditable div）"""
-        js = f"""
-        (() => {{
+        """填写视频描述（contenteditable div）- 使用CDP模拟真实输入"""
+        # 先找到并点击编辑器获取焦点
+        js_focus = """
+        (() => {
             const wujieApp = document.querySelector('wujie-app');
             const shadow = wujieApp.shadowRoot;
             const editor = shadow.querySelector('.input-editor');
             if (!editor) return 'Editor not found';
+            editor.scrollIntoView({block: 'center'});
             editor.focus();
-            editor.innerText = {json.dumps(text)};
+            // 清空内容
+            editor.innerHTML = '';
+            editor.innerText = '';
+            // 触发点击事件确保焦点
+            editor.click();
+            return 'focused';
+        })()
+        """
+        result = self.eval_js(js_focus)
+        if result.get("value") != "focused":
+            return result.get("value", "focus failed")
+        
+        time.sleep(0.5)
+        # 使用CDP插入文本（模拟真实键盘输入）
+        self.send_cmd("Input.insertText", {"text": text})
+        time.sleep(0.5)
+        
+        # 验证并触发事件
+        js_verify = f"""
+        (() => {{
+            const wujieApp = document.querySelector('wujie-app');
+            const shadow = wujieApp.shadowRoot;
+            const editor = shadow.querySelector('.input-editor');
             editor.dispatchEvent(new Event('input', {{ bubbles: true }}));
             editor.dispatchEvent(new Event('change', {{ bubbles: true }}));
-            return 'OK: ' + editor.innerText.length + ' chars';
+            editor.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+            return 'OK: ' + editor.innerText.length + ' chars, content: ' + editor.innerText.substring(0, 30);
         }})()
         """
-        result = self.eval_js(js)
+        result = self.eval_js(js_verify)
         return result.get("value", "")
 
     def fill_title(self, text):
-        """填写短标题"""
-        js = f"""
+        """填写短标题 - 使用CDP模拟真实键盘输入"""
+        # 先找到并点击输入框获取焦点
+        js_focus = """
+        (() => {
+            const wujieApp = document.querySelector('wujie-app');
+            const shadow = wujieApp.shadowRoot;
+            const inputs = shadow.querySelectorAll('input[type="text"]');
+            for (const inp of inputs) {
+                if (inp.placeholder && (inp.placeholder.includes('短标题') || inp.placeholder.includes('填写短标题'))) {
+                    inp.scrollIntoView({block: 'center'});
+                    inp.click();
+                    inp.focus();
+                    // 清空内容
+                    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                    nativeInputValueSetter.call(inp, '');
+                    inp.dispatchEvent(new Event('input', { bubbles: true }));
+                    return 'focused:' + inp.placeholder;
+                }
+            }
+            return 'NOT FOUND';
+        })()
+        """
+        result = self.eval_js(js_focus)
+        focus_result = result.get("value", "")
+        if not focus_result.startswith("focused"):
+            return focus_result
+        
+        time.sleep(0.5)
+        # 使用CDP插入文本（模拟真实键盘输入，Vue/React能正确检测）
+        self.send_cmd("Input.insertText", {"text": text})
+        time.sleep(0.5)
+        
+        # 验证并触发blur事件
+        js_verify = f"""
         (() => {{
             const wujieApp = document.querySelector('wujie-app');
             const shadow = wujieApp.shadowRoot;
             const inputs = shadow.querySelectorAll('input[type="text"]');
             for (const inp of inputs) {{
-                if (inp.placeholder && inp.placeholder.includes('短标题')) {{
-                    inp.focus();
-                    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                    setter.call(inp, '');
-                    inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    setter.call(inp, {json.dumps(text)});
-                    inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                if (inp.placeholder && (inp.placeholder.includes('短标题') || inp.placeholder.includes('填写短标题'))) {{
                     inp.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    return 'OK: ' + inp.value;
+                    inp.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+                    return 'OK: ' + inp.value + ' (len=' + inp.value.length + ')';
                 }}
             }}
-            return 'NOT FOUND';
+            return 'NOT FOUND after fill';
         }})()
         """
-        result = self.eval_js(js)
+        result = self.eval_js(js_verify)
         return result.get("value", "")
 
     def close(self):
